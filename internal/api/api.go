@@ -8,6 +8,7 @@ import (
 )
 
 func health(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "OK")
 }
 
@@ -18,5 +19,5 @@ func SetupRoutes() {
 	http.HandleFunc("/queue/pop", queue.QueuePop)
 
 	fmt.Println("Server is running...")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":10526", nil)
 }
