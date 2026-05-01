@@ -8,7 +8,7 @@ import (
 )
 
 
-func CreateQueue(id string, filename string) (*Queue, error) {
+func LoadQueue(id string, filename string) (*Queue, error) {
 	filepath := fmt.Sprintf("./data/%s", filename)
 	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 
@@ -36,6 +36,8 @@ func CreateQueue(id string, filename string) (*Queue, error) {
 
 	queues[id] = q
 
+	fmt.Printf("[Queue~LoadQueue] Loaded queue with ID \"%s\" and data file \"%s\" (%d items)\n", id, filepath, len(q.items))
+
 	return q, nil
 }
 
@@ -58,7 +60,7 @@ func GetOrCreateQueue(id string) (*Queue, error) {
 	}
 
 	// If the queue doesn't exist, create a new one
-	new_q, err := CreateQueue(id, fmt.Sprintf("%s.log", id))
+	new_q, err := LoadQueue(id, fmt.Sprintf("%s.log", id))
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create queue: %v", err)

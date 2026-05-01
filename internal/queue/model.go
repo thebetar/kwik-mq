@@ -21,6 +21,7 @@ type Queue struct {
 	items []QueueItem
 	dataFile *os.File
 	writer *bufio.Writer
+	popCounter int
 }
 
 var (
@@ -67,10 +68,14 @@ func (q *Queue) loadFromFile() error {
 			if len(items) > 0 {
 				items = items[1:]
 			}
+		} else {
+			fmt.Println("[Queue~loadFromFile] Unknown log entry:", line)
 		}
 	}
 
 	q.items = items
+
+	fmt.Printf("[Queue~loadFromFile] Loaded %d items from file \"%s\"\n", len(items), q.dataFile.Name())
 
 	return nil
 }
@@ -115,10 +120,77 @@ func (q *Queue) Pop() *QueueItem {
 		q.dataFile.Truncate(0)
 		q.dataFile.Seek(0, 0)
 		q.writer.Reset(q.dataFile)
+
+		fmt.Println("[Queue~Pop] Queue is empty, file truncated")
 	} else {
 		// Log the POP operation to the file
 		fmt.Fprintf(q.writer, "POP\n")
 	}
 
+	q.popCounter++
+
+	if q.popCounter >= 1000 {
+		q.popCounter = 0
+		go q.Compact()
+	}
+
 	return &item
+}
+
+func (q *Queue) Compact() error {
+	fmt.Printf("[Queue~Compact] Starting compaction for file \"%s\" with %d items\n", q.dataFile.Name(), len(q.items))
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	// Write all pending changes
+	q.writer.Flush()
+
+	// Create a temporary file to write the compacted data
+	tempFilename := q.dataFile.Name() + ".tmp"
+    tempFile, err := os.OpenFile(tempFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+
+	if err != nil {
+		return err
+	}
+
+	// Remove file after method returns
+	defer os.Remove(tempFilename)
+
+	// Write the current state of the queue to the buffer
+	tempWriter := bufio.NewWriter(tempFile)
+	for _, item := range q.items {
+		fmt.Fprintf(tempWriter, "PUSH:%d:%s\n", item.Timestamp.Unix(), string(item.Payload))
+	}
+
+	// Write buffer to disk and close the temporary file
+	tempWriter.Flush()
+
+	// Ensure all data is written to disk before renaming
+	tempFile.Sync()
+	tempFile.Close()
+
+	// Replace the original file with the compacted file
+	filename := q.dataFile.Name()
+	q.dataFile.Close()
+
+	err = os.Rename(tempFilename, filename)
+
+	if err != nil {
+		return err
+	}
+
+	// Reopen the data file and reset the writer
+	newFile, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+
+	if err != nil {
+		return err
+	}
+
+	q.dataFile = newFile
+	q.writer = bufio.NewWriter(q.dataFile)
+
+	fmt.Printf("[Queue~Compact] Compacted queue to file \"%s\" with %d items\n", filename, len(q.items))
+
+	return nil
 }

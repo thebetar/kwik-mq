@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-func QueuePush(w http.ResponseWriter, req *http.Request) {
+func QueuePushHandler(w http.ResponseWriter, req *http.Request) {
 	// Get the ID from the query parameter
 	id := req.URL.Query().Get("id")
 
@@ -42,7 +42,7 @@ func QueuePush(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, `{"message": "Pushed to queue %s"}`, id)
 }
 
-func QueuePop(w http.ResponseWriter, req *http.Request) {
+func QueuePopHandler(w http.ResponseWriter, req *http.Request) {
 	// Get the ID from the query parameter
 	id := req.URL.Query().Get("id")
 
@@ -53,12 +53,12 @@ func QueuePop(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Fetch the queue
-	q, exists := GetQueue(id)
+	q, q_err := GetOrCreateQueue(id)
 
-	if !exists {
+	if q_err != nil {
 		// If the queue doesn't exist, return a 404 error
 		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error": "Queue not found"}`, http.StatusNotFound)
+		http.Error(w, `{"error": "`+q_err.Error()+`"}`, http.StatusNotFound)
 		return
 	}
 

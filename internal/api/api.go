@@ -15,8 +15,8 @@ func health(w http.ResponseWriter, req *http.Request) {
 func SetupRoutes() {
 	http.HandleFunc("/health", health)
 
-	http.HandleFunc("/queue/push", queue.QueuePush)
-	http.HandleFunc("/queue/pop", queue.QueuePop)
+	http.HandleFunc("/queue/push", queue.QueuePushHandler)
+	http.HandleFunc("/queue/pop", queue.QueuePopHandler)
 
 	fmt.Println("Server is running...")
 	http.ListenAndServe(":10526", nil)
