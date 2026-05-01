@@ -3,11 +3,13 @@ services:
         build: .
         ports:
             - '10526:10526'
+        volumes:
+            - ./data:/app/data
+        environment:
+            - DATA_DIR=/app/data
         deploy:
             restart_policy:
                 condition: always
-        volumes:
-            - ./data:/app/data
         user: '1000:1000'
         stop_grace_period: 30s
         healthcheck:

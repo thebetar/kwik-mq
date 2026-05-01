@@ -29,6 +29,54 @@ var (
 	queuesMu sync.RWMutex
 )
 
+
+func NewQueue(id string) (*Queue, error) {
+	filename := fmt.Sprintf("%s.log", id)
+	dataDir := os.Getenv("DATA_DIR")
+
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		err := os.Mkdir(dataDir, 0755)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to create data directory: %v", err)
+		}
+	}
+
+	filepath := fmt.Sprintf("%s/%s", dataDir, filename)
+	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+
+	if err != nil {
+		return nil, err
+	}
+
+	q := &Queue{
+		items:    make([]QueueItem, 0),
+		dataFile: file,
+		writer:  bufio.NewWriter(file),
+	}
+
+	q.loadFromFile()
+
+	go func() {
+		ticker := time.NewTicker((100 * time.Millisecond))
+
+		for range ticker.C {
+			q.mu.Lock()
+			q.writer.Flush()
+			q.mu.Unlock()
+		}
+	}()
+
+	queues[id] = q
+
+	fmt.Printf("[Queue~LoadQueue] Loaded queue with ID \"%s\" and data file \"%s\" (%d items)\n", id, filepath, len(q.items))
+
+	return q, nil
+}
+
 func (q *Queue) loadFromFile() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
