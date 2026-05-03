@@ -10,29 +10,28 @@ import (
 )
 
 type QueueItem struct {
-	Payload json.RawMessage `json:"payload"`
+	Payload   json.RawMessage `json:"payload"`
 	Timestamp time.Time       `json:"timestamp"`
 }
 
 type Queue struct {
-	mu sync.Mutex // Ensure thread-safe access to the queue with mutual exclusion
-	items []QueueItem
-	dataFile *os.File
-	writer *bufio.Writer
+	mu         sync.Mutex // Ensure thread-safe access to the queue with mutual exclusion
+	items      []QueueItem
+	dataFile   *os.File
+	writer     *bufio.Writer
 	popCounter int
 }
 
 type LogEntry struct {
-	Operation string `json:"operation"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Operation string          `json:"operation"`
+	Timestamp time.Time       `json:"timestamp,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 var (
-	queues = make(map[string]*Queue)
+	queues   = make(map[string]*Queue)
 	queuesMu sync.RWMutex
 )
-
 
 func NewQueue(id string) (*Queue, error) {
 	filename := fmt.Sprintf("%s.log", id)
@@ -42,8 +41,9 @@ func NewQueue(id string) (*Queue, error) {
 		dataDir = "./data"
 	}
 
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		err := os.Mkdir(dataDir, 0755)
+	_, err := os.Stat(dataDir)
+	if os.IsNotExist(err) {
+		err = os.Mkdir(dataDir, 0755)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to create data directory: %v", err)
 		}
@@ -59,10 +59,14 @@ func NewQueue(id string) (*Queue, error) {
 	q := &Queue{
 		items:    make([]QueueItem, 0),
 		dataFile: file,
-		writer:  bufio.NewWriter(file),
+		writer:   bufio.NewWriter(file),
 	}
 
-	q.loadFromFile()
+	err = q.loadFromFile()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
 
 	go func() {
 		ticker := time.NewTicker((100 * time.Millisecond))
@@ -96,7 +100,7 @@ func (q *Queue) loadFromFile() error {
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		var logEntry LogEntry;
+		var logEntry LogEntry
 		err := json.Unmarshal([]byte(line), &logEntry)
 
 		if err != nil {
@@ -106,7 +110,7 @@ func (q *Queue) loadFromFile() error {
 
 		if logEntry.Operation == "PUSH" {
 			items = append(items, QueueItem{
-				Payload: logEntry.Payload, 
+				Payload:   logEntry.Payload,
 				Timestamp: logEntry.Timestamp,
 			})
 		} else if logEntry.Operation == "POP" {
@@ -131,22 +135,19 @@ func (q *Queue) loadFromFile() error {
 func (q *Queue) Push(payload json.RawMessage) (*QueueItem, error) {
 	// Create a new QueueItem with the decoded payload and current timestamp
 	var item = QueueItem{
-		Payload : payload,
-		Timestamp : time.Now(),
+		Payload:   payload,
+		Timestamp: time.Now(),
 	}
 
 	// Lock the queue for thread-safe access
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// Push the item to the queue and log it to the file
-	q.items = append(q.items, item)
-	
 	// Log the PUSH operation to the file
 	logEntry := LogEntry{
 		Operation: "PUSH",
 		Timestamp: item.Timestamp,
-		Payload: item.Payload,
+		Payload:   item.Payload,
 	}
 	logEntryJson, err := json.Marshal(logEntry)
 
@@ -155,13 +156,19 @@ func (q *Queue) Push(payload json.RawMessage) (*QueueItem, error) {
 		return nil, err
 	}
 
-	fmt.Fprintf(q.writer, "%s\n", logEntryJson)
+	_, err = fmt.Fprintf(q.writer, "%s\n", logEntryJson)
+	if err != nil {
+		return nil, err
+	}
+
+	// Push the item to the queue after it has been queued for writing to the log
+	q.items = append(q.items, item)
 
 	return &item, nil
 }
 
 func (q *Queue) Pop() (*QueueItem, error) {
-// Lock the queue for thread-safe access
+	// Lock the queue for thread-safe access
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -172,13 +179,20 @@ func (q *Queue) Pop() (*QueueItem, error) {
 
 	// Pop the first item from the queue
 	item := q.items[0]
-	q.items = q.items[1:]
+	var err error
 
-	if len(q.items) == 0 {
+	if len(q.items) == 1 {
 		// On empty queue, truncate the file to remove all entries
-		q.writer.Flush()
-		q.dataFile.Truncate(0)
-		q.dataFile.Seek(0, 0)
+		err = q.dataFile.Truncate(0)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = q.dataFile.Seek(0, 0)
+		if err != nil {
+			return nil, err
+		}
+
 		q.writer.Reset(q.dataFile)
 
 		fmt.Println("[Queue~Pop] Queue is empty, file truncated")
@@ -195,8 +209,14 @@ func (q *Queue) Pop() (*QueueItem, error) {
 			return nil, err
 		}
 
-		fmt.Fprintf(q.writer, "%s\n", logEntryJson)
+		_, err = fmt.Fprintf(q.writer, "%s\n", logEntryJson)
+		if err != nil {
+			return nil, err
+		}
+
 	}
+
+	q.items = q.items[1:]
 
 	q.popCounter++
 
@@ -215,11 +235,14 @@ func (q *Queue) Compact() error {
 	defer q.mu.Unlock()
 
 	// Write all pending changes
-	q.writer.Flush()
+	err := q.writer.Flush()
+	if err != nil {
+		return err
+	}
 
 	// Create a temporary file to write the compacted data
 	tempFilename := q.dataFile.Name() + ".tmp"
-    tempFile, err := os.OpenFile(tempFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	tempFile, err := os.OpenFile(tempFilename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 
 	if err != nil {
 		return err
@@ -234,7 +257,7 @@ func (q *Queue) Compact() error {
 		logEntry := LogEntry{
 			Operation: "PUSH",
 			Timestamp: item.Timestamp,
-			Payload: item.Payload,
+			Payload:   item.Payload,
 		}
 		logEntryJson, err := json.Marshal(logEntry)
 
@@ -243,19 +266,35 @@ func (q *Queue) Compact() error {
 			return err
 		}
 
-		fmt.Fprintf(tempWriter, "%s\n", logEntryJson)
+		_, err = fmt.Fprintf(tempWriter, "%s\n", logEntryJson)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Write buffer to disk and close the temporary file
-	tempWriter.Flush()
+	err = tempWriter.Flush()
+	if err != nil {
+		return err
+	}
 
 	// Ensure all data is written to disk before renaming
-	tempFile.Sync()
-	tempFile.Close()
+	err = tempFile.Sync()
+	if err != nil {
+		return err
+	}
+
+	err = tempFile.Close()
+	if err != nil {
+		return err
+	}
 
 	// Replace the original file with the compacted file
 	filename := q.dataFile.Name()
-	q.dataFile.Close()
+	err = q.dataFile.Close()
+	if err != nil {
+		return err
+	}
 
 	err = os.Rename(tempFilename, filename)
 

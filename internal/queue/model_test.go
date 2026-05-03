@@ -9,7 +9,7 @@ import (
 
 func TestPush(t *testing.T) {
 	test_queue_id := "test_queue_push_" + time.Now().Format("20060102150405")
-	tempDir := t.TempDir() 
+	tempDir := t.TempDir()
 	os.Setenv("DATA_DIR", tempDir) // Assuming your code now checks for this
 
 	q, err := NewQueue(test_queue_id)
@@ -23,7 +23,10 @@ func TestPush(t *testing.T) {
 	}
 
 	var test_payload json.RawMessage = json.RawMessage(`{"test": "data"}`)
-	q.Push(test_payload)
+	_, err = q.Push(test_payload)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
 	if len(q.items) != 1 {
 		t.Errorf("Expected queue to have 1 item after push, got %d", len(q.items))
@@ -36,7 +39,7 @@ func TestPush(t *testing.T) {
 
 func TestPop(t *testing.T) {
 	test_queue_id := "test_queue_pop_" + time.Now().Format("20060102150405")
-	tempDir := t.TempDir() 
+	tempDir := t.TempDir()
 	os.Setenv("DATA_DIR", tempDir) // Assuming your code now checks for this
 
 	q, err := NewQueue(test_queue_id)
@@ -50,10 +53,16 @@ func TestPop(t *testing.T) {
 	}
 
 	var test_payload_1 json.RawMessage = json.RawMessage(`{"test": "data"}`)
-	q.Push(test_payload_1)
+	_, err = q.Push(test_payload_1)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
 	var test_payload_2 json.RawMessage = json.RawMessage(`{"test": "data2"}`)
-	q.Push(test_payload_2)
+	_, err = q.Push(test_payload_2)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
 	item1, err := q.Pop()
 	if err != nil {
@@ -64,7 +73,7 @@ func TestPop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	
+
 	item3, err := q.Pop() // This should be nil since the queue is now empty
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)

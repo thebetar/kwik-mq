@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -25,7 +26,8 @@ func TestGetOrCreateQueue(t *testing.T) {
 
 	// Check if file exists
 	expectedFilePath := fmt.Sprintf("%s/%s.log", tempDir, test_queue_id)
-	if _, err := os.Stat(expectedFilePath); os.IsNotExist(err) {
+	_, err = os.Stat(expectedFilePath)
+	if os.IsNotExist(err) {
 		t.Errorf("Expected data file \"%s\" to exist, but it does not", expectedFilePath)
 	}
 
@@ -42,41 +44,68 @@ func TestGetOrCreateQueue(t *testing.T) {
 }
 
 func TestGetOrCreateQueueWithRows(t *testing.T) {
-    test_queue_id := "test_queue_with_rows_" + time.Now().Format("20060102150405")
-    tempDir := t.TempDir() 
-    os.Setenv("DATA_DIR", tempDir) // Assuming your code now checks for this
+	test_queue_id := "test_queue_with_rows_" + time.Now().Format("20060102150405")
+	tempDir := t.TempDir()
+	os.Setenv("DATA_DIR", tempDir) // Assuming your code now checks for this
 
-    // 1. Manually craft the log file first
-    logFilePath := tempDir + "/" + test_queue_id + ".log"
-    
-    now := time.Now().Unix()
+	// 1. Manually craft the log file first
+	logFilePath := tempDir + "/" + test_queue_id + ".log"
+
+	now := time.Now()
 
 	test_items := []string{
-		`{"test": "data1"}`,
-		`{"test": "data2"}`,
-		`{"test": "data3"}`,
+		`{"test":"data1"}`,
+		`{"test":"data2"}`,
+		`{"test":"data3"}`,
 	}
 
-    logContent := fmt.Sprintf("PUSH:%d:%s\n", now-10, test_items[0])
-	logContent += fmt.Sprintf("PUSH:%d:%s\n", now-5, test_items[1])
-	logContent += "POP\n"  // Removes the first payload
-	logContent += fmt.Sprintf("PUSH:%d:%s\n", now, test_items[2])
+	entries := []LogEntry{
+		{
+			Operation: "PUSH",
+			Timestamp: now.Add(-10 * time.Second),
+			Payload:   json.RawMessage(test_items[0]),
+		},
+		{
+			Operation: "PUSH",
+			Timestamp: now.Add(-5 * time.Second),
+			Payload:   json.RawMessage(test_items[1]),
+		},
+		{
+			Operation: "POP",
+			Timestamp: now,
+		},
+		{
+			Operation: "PUSH",
+			Timestamp: now,
+			Payload:   json.RawMessage(test_items[2]),
+		},
+	}
 
-    // Write this raw log content to disk BEFORE initializing the queue
-    err := os.WriteFile(logFilePath, []byte(logContent), 0644)
-    if err != nil {
-        t.Fatalf("Failed to write mock log file: %v", err)
-    }
+	logContent := ""
+	for _, entry := range entries {
+		entryJson, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatalf("Failed to marshal mock log entry: %v", err)
+		}
 
-    // Create new queue from existing file
-    q, err := GetOrCreateQueue(test_queue_id)
-    if err != nil {
-        t.Fatalf("Expected no error, got %v", err)
-    }
+		logContent += string(entryJson) + "\n"
+	}
 
-    if q == nil {
-        t.Fatal("Expected a queue instance, got nil")
-    }
+	// Write this raw log content to disk BEFORE initializing the queue
+	err := os.WriteFile(logFilePath, []byte(logContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write mock log file: %v", err)
+	}
+
+	// Create new queue from existing file
+	q, err := GetOrCreateQueue(test_queue_id)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if q == nil {
+		t.Fatal("Expected a queue instance, got nil")
+	}
 
 	if len(q.items) != 2 {
 		t.Fatalf("Expected 2 items in the queue after loading from file, got %d", len(q.items))
@@ -87,14 +116,14 @@ func TestGetOrCreateQueueWithRows(t *testing.T) {
 		if string(item.Payload) == test_items[i+1] { // Skip the first item which was popped
 			continue
 		}
-		
+
 		t.Errorf("Expected payload %s at index %d, got %s", test_items[i+1], i, string(item.Payload))
 	}
 }
 
 func TestGetQueue(t *testing.T) {
 	test_queue_id := "test_queue_get_" + time.Now().Format("20060102150405")
-	tempDir := t.TempDir() 
+	tempDir := t.TempDir()
 	os.Setenv("DATA_DIR", tempDir) // Assuming your code now checks for this
 
 	q, err := GetOrCreateQueue(test_queue_id)
