@@ -55,9 +55,20 @@ func TestPop(t *testing.T) {
 	var test_payload_2 json.RawMessage = json.RawMessage(`{"test": "data2"}`)
 	q.Push(test_payload_2)
 
-	item1 := q.Pop()
-	item2 := q.Pop()
-	item3 := q.Pop() // This should be nil since the queue is now empty
+	item1, err := q.Pop()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	item2, err := q.Pop()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	
+	item3, err := q.Pop() // This should be nil since the queue is now empty
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
 	if item1 == nil || string(item1.Payload) != `{"test": "data"}` {
 		t.Errorf("Expected first popped item to have payload {\"test\": \"data\"}, got %v", item1)

@@ -35,7 +35,13 @@ func QueuePushHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Create a new QueueItem with the decoded payload and current timestamp
-	q.Push(raw)
+	_, err := q.Push(raw)
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
 
 	// Return a success response
 	w.Header().Set("Content-Type", "application/json")
@@ -62,7 +68,13 @@ func QueuePopHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	item := q.Pop()
+	item, err := q.Pop()
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
 
 	if item == nil {
 		// If the queue is empty, return a 204 No Content response

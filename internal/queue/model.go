@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +20,12 @@ type Queue struct {
 	dataFile *os.File
 	writer *bufio.Writer
 	popCounter int
+}
+
+type LogEntry struct {
+	Operation string `json:"operation"`
+	Timestamp time.Time `json:"timestamp,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 var (
@@ -92,30 +96,26 @@ func (q *Queue) loadFromFile() error {
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if strings.HasPrefix(line, "PUSH:") {
-			payload := line[5:]
-			before_cut, after_cut, ok := strings.Cut(payload, ":")
-			
-			if !ok {
-				continue
-			}
+		var logEntry LogEntry;
+		err := json.Unmarshal([]byte(line), &logEntry)
 
-			timestampStr := before_cut
-			payloadStr := after_cut
+		if err != nil {
+			fmt.Printf("[Queue~loadFromFile] Failed to unmarshal log entry: %v\n", err)
+			continue
+		}
 
-			timestampInt, err := strconv.ParseInt(timestampStr, 10, 64)
-			if err != nil {
-				continue
-			}
-
+		if logEntry.Operation == "PUSH" {
 			items = append(items, QueueItem{
-				Payload: json.RawMessage(payloadStr), 
-				Timestamp: time.Unix(timestampInt, 0),
+				Payload: logEntry.Payload, 
+				Timestamp: logEntry.Timestamp,
 			})
-		} else if line == "POP" {
-			if len(items) > 0 {
-				items = items[1:]
+		} else if logEntry.Operation == "POP" {
+			if len(items) == 0 {
+				fmt.Println("[Queue~loadFromFile] Warning: POP operation found but queue is already empty")
+				continue
 			}
+
+			items = items[1:]
 		} else {
 			fmt.Println("[Queue~loadFromFile] Unknown log entry:", line)
 		}
@@ -128,7 +128,7 @@ func (q *Queue) loadFromFile() error {
 	return nil
 }
 
-func (q *Queue) Push(payload json.RawMessage) *QueueItem {
+func (q *Queue) Push(payload json.RawMessage) (*QueueItem, error) {
 	// Create a new QueueItem with the decoded payload and current timestamp
 	var item = QueueItem{
 		Payload : payload,
@@ -143,19 +143,31 @@ func (q *Queue) Push(payload json.RawMessage) *QueueItem {
 	q.items = append(q.items, item)
 	
 	// Log the PUSH operation to the file
-	fmt.Fprintf(q.writer, "PUSH:%d:%s\n", item.Timestamp.Unix(), string(item.Payload))
+	logEntry := LogEntry{
+		Operation: "PUSH",
+		Timestamp: item.Timestamp,
+		Payload: item.Payload,
+	}
+	logEntryJson, err := json.Marshal(logEntry)
 
-	return &item
+	if err != nil {
+		fmt.Printf("[Queue~Push] Failed to marshal log entry: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Fprintf(q.writer, "%s\n", logEntryJson)
+
+	return &item, nil
 }
 
-func (q *Queue) Pop() *QueueItem {
+func (q *Queue) Pop() (*QueueItem, error) {
 // Lock the queue for thread-safe access
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	// Check if the queue is empty
 	if len(q.items) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Pop the first item from the queue
@@ -172,7 +184,18 @@ func (q *Queue) Pop() *QueueItem {
 		fmt.Println("[Queue~Pop] Queue is empty, file truncated")
 	} else {
 		// Log the POP operation to the file
-		fmt.Fprintf(q.writer, "POP\n")
+		logEntry := LogEntry{
+			Operation: "POP",
+			Timestamp: time.Now(),
+		}
+		logEntryJson, err := json.Marshal(logEntry)
+
+		if err != nil {
+			fmt.Printf("[Queue~Pop] Failed to marshal log entry: %v\n", err)
+			return nil, err
+		}
+
+		fmt.Fprintf(q.writer, "%s\n", logEntryJson)
 	}
 
 	q.popCounter++
@@ -182,7 +205,7 @@ func (q *Queue) Pop() *QueueItem {
 		go q.Compact()
 	}
 
-	return &item
+	return &item, nil
 }
 
 func (q *Queue) Compact() error {
@@ -208,7 +231,19 @@ func (q *Queue) Compact() error {
 	// Write the current state of the queue to the buffer
 	tempWriter := bufio.NewWriter(tempFile)
 	for _, item := range q.items {
-		fmt.Fprintf(tempWriter, "PUSH:%d:%s\n", item.Timestamp.Unix(), string(item.Payload))
+		logEntry := LogEntry{
+			Operation: "PUSH",
+			Timestamp: item.Timestamp,
+			Payload: item.Payload,
+		}
+		logEntryJson, err := json.Marshal(logEntry)
+
+		if err != nil {
+			fmt.Printf("[Queue~Compact] Failed to marshal log entry: %v\n", err)
+			return err
+		}
+
+		fmt.Fprintf(tempWriter, "%s\n", logEntryJson)
 	}
 
 	// Write buffer to disk and close the temporary file
