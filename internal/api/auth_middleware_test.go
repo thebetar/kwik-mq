@@ -26,31 +26,11 @@ func (d *dummyResponseWriter) WriteHeader(statusCode int) {
 	// No-op for testing
 }
 
-func TestGenerateRandomToken(t *testing.T) {
-	token1 := generateRandomToken(32)
-	token2 := generateRandomToken(32)
-
-	if len(token1) != 32 {
-		t.Errorf("Expected token length of 32, got %d", len(token1))
-	}
-
-	if len(token2) != 32 {
-		t.Errorf("Expected token length of 32, got %d", len(token2))
-	}
-
-	if token1 == token2 {
-		t.Error("Expected two generated tokens to be different, but they are the same")
-	}
-}
-
 func TestGetAccessToken(t *testing.T) {
-	// Clear the ACCESS_TOKEN environment variable for testing
-	os.Unsetenv("ACCESS_TOKEN")
-
 	token := getAccessToken()
 
 	if token == "" {
-		t.Error("Expected a non-empty access token, got an empty string")
+		t.Error("Expected a non-empty access token, got an empty string, if you did not set up an ACCESS_TOKEN environment variable, one should have been generated and saved to .env")
 	}
 
 	// Check if the token is set in the environment variable

@@ -12,7 +12,11 @@ func health(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, "OK")
 }
 
+
+
 func SetupRoutes() {
+	checkAccessTokenExists()
+
 	http.HandleFunc("/health", health)
 
 	http.HandleFunc("/queue/push", func(w http.ResponseWriter, r *http.Request) {

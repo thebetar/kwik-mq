@@ -1,6 +1,8 @@
 services:
     kwik-mq:
         build: .
+        env_file:
+            - .env
         ports:
             - '10526:10526'
         volumes:
